@@ -70,7 +70,7 @@ NumberOfPages*sizeof(page_table_entry),0)) == -1 ||
         Mode = argv[RSIndex][0];
         Page = atoi(&argv[RSIndex][1]);
 //----Check that it's within the process
-        if (Page >= NumberOfPages) {
+        if (Page >= NumberOfPages)	 {
             printf("ERROR: That page number in %c%d is outside the process\n",
 Mode,Page);
         } else {
@@ -97,6 +97,7 @@ Mode,Page);
                 printf("Set the dirty bit for page %d\n",Page);
                 PageTable[Page].Dirty = 1;
             }
+	    PageTable[Page].LastUsed = 0;
             PrintPageTable(PageTable,NumberOfPages);
             printf("\n");
         }
