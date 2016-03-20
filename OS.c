@@ -157,7 +157,7 @@ void putInFreeFrame(int i, int Page_Request){
 	PageTable[Page_Request].Valid = 1;
 	PageTable[Page_Request].Frame = i;
 	FrameTable[i] = true;
-	printf("Unblock MMU \n");	
+	
 }
 
 
@@ -180,6 +180,7 @@ void putInVictimFrame(int Page_Request){
 }
 
 void sendSignalToMMU(int MMU_Pid, int PageRequest){
+	printf("Unblock MMU \n");
 	kill(MMU_Pid,SIGCONT);
 }
 
