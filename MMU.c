@@ -12,6 +12,15 @@
 #include <sys/shm.h>
 #include <sys/stat.h>
 #include "PageTable.h"
+
+//-----------------------------------------------------------------------------
+void UpdateLastUsedTime(page_table_entry PageTable[], int NumberOfPages){
+	for (int i = 0 ; i < NumberOfPages ; i++) {
+		if (PageTable[i].Valid) {
+			PageTable[i].LastUsed++;					
+		}
+	}
+}
 //-----------------------------------------------------------------------------
 //----Used for delayed tasks
 void ContinueHandler(int Signal) {
@@ -75,6 +84,7 @@ NumberOfPages*sizeof(page_table_entry),0)) == -1 ||
 Mode,Page);
         } else {
             printf("Request for page %d in %c mode\n",Page,Mode);
+	    UpdateLastUsedTime(PageTable,NumberOfPages);
 //----Check if in memory
             if (!PageTable[Page].Valid) {
                 printf("It's not in RAM - page fault\n");

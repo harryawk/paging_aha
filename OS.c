@@ -165,8 +165,10 @@ void putInVictimFrame(int Page_Request){
 	int Victim;
 	Victim = getVictimIdx();
 		printf("Chose a victim page %d \n", Victim);
+		PageTable[Victim].LastUsed = 0;
 		PageTable[Victim].Valid = 0;
 		if ( PageTable[Victim].Dirty ) {
+			
 			PageTable[Victim].Dirty = 0;
 			printf("Victim is dirty , write out \n");
 			sleep(1);	
