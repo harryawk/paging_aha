@@ -1,3 +1,11 @@
+/*	Simulasi Virtual Memory Paging dengan C 
+	Tugas OS 
+	13514006 - Adi Purnama
+	13514030 - Aditio Pangestu
+	13514036 - Harry Alvin W K
+
+*/
+
 #include <stdio.h>
 #include <unistd.h>
 #include <stdlib.h>
@@ -11,28 +19,18 @@
 #include <sys/shm.h>
 #include <sys/stat.h>
 #include "PageTable.h"
-
 #define NOTFOUND -1
 
+int SharedMemoryKey;			//Key [Shared Memory]
+int SegmentID;					//SegmentID [Shared Memory]
+page_table_pointer PageTable;	//Page Table
+frame_table_pointer FrameTable;	//Frame Table
+int n_page;						//Jumlah Page
+int n_frame;					//Jumlah Frame
+int n_diskAccess;				//Jumlah disk access
 
-int n_page;
-int n_frame;
-int SegmentID;
-int SharedMemoryKey;
-page_table_pointer PageTable;
-bool * FrameTable;
-int DiskAccess;
 
-
-void PrintPageTable(page_table_entry PageTable[],int NumberOfPages) {
-    int Index;
-    for (Index =  0;Index < NumberOfPages;Index++) {
-        printf("%2d: Valid=%1d Frame=%2d Dirty=%1d Requested=%1d\n",Index,
-	PageTable[Index].Valid,PageTable[Index].Frame,PageTable[Index].Dirty,
-	PageTable[Index].Requested);
-    }
-}
-
+//Inisialisasi program OS berdasarkan parameter yang diberikana
 void initializeParameter(int argc, char* argv[]){
 	if (argc <2) {
 		printf("Warning : Wrong parameter \n");
@@ -51,8 +49,10 @@ void initializeParameter(int argc, char* argv[]){
 
 }
 
+
+//Membuat shared memory , dengan key = OSPID, ukuran sesuai dengan besar page number
 void createSharedMemory() {
-	DiskAccess = 0;
+	n_diskAccess = 0;
 	SharedMemoryKey = getpid();
 
 	if ( 
@@ -71,6 +71,7 @@ void createSharedMemory() {
 
 }
 
+//Inisialisasi shared memory yang telah dibuat
 void initializeSharedMemory(){
 	for(int i = 0 ; i<n_page ; i++) {
 		PageTable[i].Valid = 0;
@@ -87,7 +88,7 @@ void initializeSharedMemory(){
 
 
 
-
+//Mendapatkan indeks PageTable yang diminta oleh MMU
 int getRequestedPageTableIdx(){
 	int i = 0;
 	while ( i < n_page && PageTable[i].Requested == 0 ) {
@@ -99,6 +100,7 @@ int getRequestedPageTableIdx(){
 	return i;
 }
 
+//Mendapatkan indeks PageTable yang akan digantikan
 int getVictimIdx() {
 	int i = 0;
 	int idxmax;
@@ -117,6 +119,7 @@ int getVictimIdx() {
 	return idxmax;
 }
 
+//Mendapatkan indeks FrameTable yang masih kosong
 int getFreeFrameIdx(bool FrameTable[] , int n_frame){
 	int i = 0;
 	while ( i < n_frame && FrameTable[i] == true) {
@@ -128,7 +131,18 @@ int getFreeFrameIdx(bool FrameTable[] , int n_frame){
 	return i;
 }
 
+//Mencetak page table pada layar
+void PrintPageTable(page_table_entry PageTable[],int NumberOfPages) {
+    int Index;
+    for (Index =  0;Index < NumberOfPages;Index++) {
+        printf("%2d: Valid=%1d Frame=%2d Dirty=%1d Requested=%1d\n",Index,
+	PageTable[Index].Valid,PageTable[Index].Frame,PageTable[Index].Dirty,
+	PageTable[Index].Requested);
+    }
+}
 
+//Analisis sinyal yang diterma OS
+//Apakah sinyal proses atau sinyal berhenti
 void initializeSignalProcess(int* MMU_Pid, int* Page_Request  ){
 	int i = 0;
 	
@@ -136,7 +150,7 @@ void initializeSignalProcess(int* MMU_Pid, int* Page_Request  ){
 	if ( i == NOTFOUND ) {
 		printf("The MMU has finished \n");
 		PrintPageTable(PageTable,n_page);
-		printf("%d disk accesses required \n", DiskAccess);
+		printf("%d disk accesses required \n", n_diskAccess);
 		exit(0);
 	}
 	else {
@@ -145,12 +159,13 @@ void initializeSignalProcess(int* MMU_Pid, int* Page_Request  ){
 		printf("Process %d has requested page %d \n", PageTable[i].Requested,i);
 		PageTable[*Page_Request].Dirty = 0;
 		PageTable[*Page_Request].Requested = 0;
-		DiskAccess++;
+		n_diskAccess++;
 	}
 
 }
 
 
+//Tempatkan page pada Free Frame
 void putInFreeFrame(int i, int Page_Request){
 	printf("Put it in free frame %d \n", i); 
 	sleep(1);
@@ -161,6 +176,7 @@ void putInFreeFrame(int i, int Page_Request){
 }
 
 
+//Tempatkan page pada Victim Page
 void putInVictimFrame(int Page_Request){
 	int Victim;
 	Victim = getVictimIdx();
@@ -172,7 +188,7 @@ void putInVictimFrame(int Page_Request){
 			PageTable[Victim].Dirty = 0;
 			printf("Victim is dirty , write out \n");
 			sleep(1);	
-			DiskAccess++;
+			n_diskAccess++;
 		}
 		printf("Put in victim's frame %d \n", PageTable[Victim].Frame);
 		PageTable[Page_Request].Valid = 1;
@@ -181,12 +197,15 @@ void putInVictimFrame(int Page_Request){
 
 }
 
+//Mengirim sinyal kepada MMU bahwa proses sudah selesai
 void sendSignalToMMU(int MMU_Pid, int PageRequest){
 	printf("Unblock MMU \n");
 	kill(MMU_Pid,SIGCONT);
 }
 
 
+
+//Proses sinyal yang diterma OS
 void processSignal(int){	
 	int freeFrameIdx;
 	int MMU_Pid;
@@ -203,10 +222,12 @@ void processSignal(int){
 	sendSignalToMMU(MMU_Pid,Page_Request);
 } 
 
+//Menunggu sinyal datang
 void waitForSignal(){
 	signal(SIGUSR1,processSignal);
 	while (true) {}	
 }
+
 
 
 int main(int argc, char* argv[]) {
@@ -215,6 +236,7 @@ int main(int argc, char* argv[]) {
 	createSharedMemory();
 	initializeSharedMemory();
 	waitForSignal();
+	
 	return 0;
 	
 }
