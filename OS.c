@@ -12,7 +12,9 @@
 #include <sys/stat.h>
 #include "PageTable.h"
 
-void ProcessSignal(int);
+#define NOTFOUND -1
+
+
 int n_page;
 int n_frame;
 int SegmentID;
@@ -21,64 +23,55 @@ page_table_pointer PageTable;
 bool * FrameTable;
 int DiskAccess;
 
+
 void PrintPageTable(page_table_entry PageTable[],int NumberOfPages) {
-
     int Index;
-
     for (Index =  0;Index < NumberOfPages;Index++) {
         printf("%2d: Valid=%1d Frame=%2d Dirty=%1d Requested=%1d\n",Index,
 	PageTable[Index].Valid,PageTable[Index].Frame,PageTable[Index].Dirty,
 	PageTable[Index].Requested);
     }
-
 }
 
-void UpdateLastUsedTime(page_table_entry PageTable[], int NumberOfPages){
-	for (int i = 0 ; i < NumberOfPages ; i++) {
-		if (PageTable[i].Valid) {
-			PageTable[i].LastUsed++;					
+void initializeParameter(int argc, char* argv[]){
+	if (argc <2) {
+		printf("Warning : Wrong parameter \n");
+		printf("OS <numberOfPages> <numberofFrame>\n");
+		exit(-1);
+	}
+	else {
+		n_page = atoi(argv[1]);
+		n_frame = atoi(argv[2]);
+		if ((n_page <= 0) || (n_frame <= 0)) {
+			printf("Warning : Wrong parameter \n");
+			printf("Number of pages & frames should be an integer, greater than zero.. \n");
+			exit(-1);
 		}
 	}
+
 }
 
-int GetVictim() {
-	int i = 0;
-	int idxmax;
-	int max;
-
-	while ( i < n_page && PageTable[i].Valid == false ) {
-		i++;
-	}
-	idxmax =i;
-	max = PageTable[i].LastUsed;
-
-	for (int i = idxmax ; i< n_page ; i++) {
-		if ( (PageTable[i].LastUsed > max) && (PageTable[i].Valid)) {
-			max = PageTable[i].LastUsed;			
-			idxmax = i;	
-		}
-	}
-	return idxmax;
-}
-
-
-
-
-
-int main(int argc, char* argv[]) {
-	
-	//Inisialisasi
+void createSharedMemory() {
 	DiskAccess = 0;
-	n_page = atoi(argv[1]);
-	n_frame = atoi(argv[2]);
 	SharedMemoryKey = getpid();
 
-	//Buat FrameTable dan Shared Memory PageTable
-	SegmentID = shmget(SharedMemoryKey, n_page * sizeof(page_table_entry) , IPC_CREAT | 0666);
-	FrameTable = (bool * ) malloc ( n_page* sizeof(bool));
-	PageTable = (page_table_pointer) shmat(SegmentID,NULL,0);
+	if ( 
+	((SegmentID = shmget(SharedMemoryKey, n_page * sizeof(page_table_entry) , IPC_CREAT | 0666)) == -1) ||
+	(((PageTable = (page_table_pointer) shmat(SegmentID,NULL,0)) == NULL) ||
+	((FrameTable = (bool * ) malloc ( n_frame* sizeof(bool))) == NULL )	
+	)
+	) {
+	     printf("Warning : Shared Memory Error \n");
+	 	 printf("Shared memory couldn't be initialized.\n");
+	     exit(0);    
+	}
+	else {
+		printf("The shared memory key (PID) is %d \n", SharedMemoryKey);
+	}
 
-	//Inisialisasi FrameTable & Shared Memory
+}
+
+void initializeSharedMemory(){
 	for(int i = 0 ; i<n_page ; i++) {
 		PageTable[i].Valid = 0;
 		PageTable[i].Frame = -1;
@@ -89,74 +82,137 @@ int main(int argc, char* argv[]) {
 	for(int i = 0 ; i<n_frame ; i++) {
 		FrameTable[i] = false;
 	}
-
-	//OS Siap,loop menunggu sinyal
-	printf("The shared memory key (PID) is %d \n", SharedMemoryKey);
 	printf("Initialized page table \n");
-	signal(SIGUSR1,ProcessSignal);
-	while (true) {}
-
-	return 0;
 }
 
 
 
 
-
-void ProcessSignal(int){	
+int getRequestedPageTableIdx(){
 	int i = 0;
-	int MMU_Pid;
-	int Page_Request;
-	int Victim;
-
-	UpdateLastUsedTime(PageTable,n_page);	
-
-	
 	while ( i < n_page && PageTable[i].Requested == 0 ) {
 		i++;	
 	}
-	if ( i != n_page) {
-		Page_Request = i;
-		MMU_Pid = PageTable[i].Requested;
-		printf("Process %d has requested page %d \n", PageTable[i].Requested,i);
+	if ( i == n_page){
+		i = -1;
 	}
-	else {
+	return i;
+}
+
+int getVictimIdx() {
+	int i = 0;
+	int idxmax;
+	int max;
+	while ( i < n_page && PageTable[i].Valid == false ) {
+		i++;
+	}
+	idxmax = i;
+	max = PageTable[i].LastUsed;
+	for (int i = idxmax ; i< n_page ; i++) {
+		if ( (PageTable[i].LastUsed > max) && (PageTable[i].Valid)) {
+			max = PageTable[i].LastUsed;			
+			idxmax = i;	
+		}
+	}
+	return idxmax;
+}
+
+int getFreeFrameIdx(bool FrameTable[] , int n_frame){
+	int i = 0;
+	while ( i < n_frame && FrameTable[i] == true) {
+		i++;
+	}
+	if (i== n_frame){
+		i = -1;
+	}
+	return i;
+}
+
+
+void initializeSignalProcess(int* MMU_Pid, int* Page_Request  ){
+	int i = 0;
+	
+	i = getRequestedPageTableIdx();
+	if ( i == NOTFOUND ) {
 		printf("The MMU has finished \n");
 		PrintPageTable(PageTable,n_page);
 		printf("%d disk accesses required \n", DiskAccess);
 		exit(0);
 	}
-
-
-	i = 0;
-	while ( i < n_frame && FrameTable[i] == true) {
-		i++;
-	}
-	if ( i != n_frame ) {
-		printf("Put it in free frame %d \n", i); 
-		sleep(1);
-		PageTable[Page_Request].Valid = 1;
-		PageTable[Page_Request].Frame = i;
-		FrameTable[i] = true;
-		printf("Unblock MMU \n");	
-	}
 	else {
-		Victim = GetVictim();
+		*Page_Request = i;
+		*MMU_Pid = PageTable[i].Requested;
+		printf("Process %d has requested page %d \n", PageTable[i].Requested,i);
+		PageTable[*Page_Request].Dirty = 0;
+		PageTable[*Page_Request].Requested = 0;
+		DiskAccess++;
+	}
+
+}
+
+
+void putInFreeFrame(int i, int Page_Request){
+	printf("Put it in free frame %d \n", i); 
+	sleep(1);
+	PageTable[Page_Request].Valid = 1;
+	PageTable[Page_Request].Frame = i;
+	FrameTable[i] = true;
+	printf("Unblock MMU \n");	
+}
+
+
+void putInVictimFrame(int Page_Request){
+	int Victim;
+	Victim = getVictimIdx();
 		printf("Chose a victim page %d \n", Victim);
 		if ( PageTable[Victim].Dirty ) {
+			PageTable[Victim].Valid = 0;
+			PageTable[Victim].Dirty = 0;
 			printf("Victim is dirty , write out \n");
 			sleep(1);	
 			DiskAccess++;
 		}
 		printf("Put in victim's frame %d \n", PageTable[Victim].Frame);
-		PageTable[Victim].Valid = 0;
-		PageTable[Victim].Dirty = 0;
 		PageTable[Page_Request].Valid = 1;
 		PageTable[Page_Request].Frame = PageTable[Victim].Frame;
-		PageTable[Victim].Frame = -1;		
-	}
-	PageTable[Page_Request].Dirty = 0;
-	PageTable[Page_Request].Requested = 0;
-	DiskAccess++;
+		PageTable[Victim].Frame = -1;	
+
+}
+
+void sendSignalToMMU(int MMU_Pid, int PageRequest){
 	kill(MMU_Pid,SIGCONT);
+}
+
+
+void processSignal(int){	
+	int freeFrameIdx;
+	int MMU_Pid;
+	int Page_Request;
+	
+	initializeSignalProcess(&MMU_Pid,&Page_Request);
+	freeFrameIdx = getFreeFrameIdx(FrameTable, n_frame);
+	if ( freeFrameIdx == NOTFOUND ) {
+		putInVictimFrame(Page_Request);
+	}
+	else {
+		putInFreeFrame(freeFrameIdx,Page_Request);
+	}
+	sendSignalToMMU(MMU_Pid,Page_Request);
 } 
+
+void waitForSignal(){
+	signal(SIGUSR1,processSignal);
+	while (true) {}	
+}
+
+
+int main(int argc, char* argv[]) {
+
+	initializeParameter(argc,argv);
+	createSharedMemory();
+	initializeSharedMemory();
+	waitForSignal();
+	return 0;
+	
+}
+
